@@ -5,7 +5,7 @@ from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 import logging
-from typing import Tuple
+from typing import Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,7 @@ class RedisRateLimiter:
         self.redis = None
         self.rate_limit = 20  # requests per window
         self.window = 60  # 1 minute window
+        self.is_available = False
         self._connect_to_redis()
 
     def _connect_to_redis(self) -> None:
@@ -27,12 +28,15 @@ class RedisRateLimiter:
                 # Test the connection
                 self.redis.ping()
                 logger.info("Successfully connected to Redis")
+                self.is_available = True
                 break
             except (ConnectionError, TimeoutError) as e:
                 retries += 1
                 if retries == self.max_retries:
-                    logger.error(f"Failed to connect to Redis after {self.max_retries} attempts: {e}")
-                    raise
+                    logger.warning(f"Redis not available after {self.max_retries} attempts: {e}")
+                    self.is_available = False
+                    # Don't raise exception, just continue without Redis
+                    break
                 logger.warning(f"Redis connection attempt {retries} failed, retrying...")
                 time.sleep(1)  # Wait before retrying
 
@@ -41,10 +45,17 @@ class RedisRateLimiter:
         Check if rate limit is exceeded for the given key.
         Returns (is_allowed, remaining_requests)
         """
+        # If Redis is not available, allow all requests
+        if not self.is_available:
+            return True, self.rate_limit
+
         try:
             if not self.redis or not self.redis.ping():
                 logger.warning("Redis connection lost, attempting to reconnect...")
                 self._connect_to_redis()
+                # If reconnection failed, allow the request
+                if not self.is_available:
+                    return True, self.rate_limit
 
             pipe = self.redis.pipeline()
             now = time.time()
@@ -75,16 +86,20 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app,
-        redis_url: str = "redis://localhost:6379",
+        redis_url: Optional[str] = None,
         prefix: str = "rate_limit"
     ):
         super().__init__(app)
-        self.limiter = RedisRateLimiter(redis_url)
+        self.limiter = RedisRateLimiter(redis_url) if redis_url else None
         self.prefix = prefix
 
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        # If no limiter is configured, just process the request
+        if not self.limiter:
+            return await call_next(request)
+
         try:
             # Get client IP
             client_ip = request.client.host
@@ -102,10 +117,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Process request
             response = await call_next(request)
             
-            # Add rate limit headers
-            response.headers["X-RateLimit-Limit"] = str(self.limiter.rate_limit)
-            response.headers["X-RateLimit-Remaining"] = str(remaining)
-            response.headers["X-RateLimit-Reset"] = str(int(time.time() + self.limiter.window))
+            # Add rate limit headers only if Redis is available
+            if self.limiter.is_available:
+                response.headers["X-RateLimit-Limit"] = str(self.limiter.rate_limit)
+                response.headers["X-RateLimit-Remaining"] = str(remaining)
+                response.headers["X-RateLimit-Reset"] = str(int(time.time() + self.limiter.window))
             
             return response
 
