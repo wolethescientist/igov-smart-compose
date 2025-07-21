@@ -8,7 +8,6 @@ from app.cache import RedisCache
 import logging
 from redis import Redis
 from redis.exceptions import ConnectionError, TimeoutError
-from app.config import GEMINI_API_KEY, REDIS_URL
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +15,11 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    raise RuntimeError("GEMINI_API_KEY environment variable is not set")
+    
+genai.configure(api_key=api_key)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 COMPLETION_PROMPT = """You are a formal government text completion service. Provide ONLY the next few words to complete the text. Use formal, professional language and bureaucratic terminology. NO explanations or original text.
@@ -31,22 +33,25 @@ app = FastAPI(
     description="An API that uses Google's Gemini to provide text suggestions, similar to Gmail's Smart Compose."
 )
 
+# Add Redis-based rate limiting middleware
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+
 @app.on_event("startup")
 async def startup_event():
     # Test Redis connection on startup
     try:
-        redis = Redis.from_url(REDIS_URL, decode_responses=True)
+        redis = Redis.from_url(redis_url, decode_responses=True)
         redis.ping()
-        logger.info("✅ Successfully connected to Redis at %s", REDIS_URL)
+        logger.info("✅ Successfully connected to Redis at %s", redis_url)
     except (ConnectionError, TimeoutError) as e:
-        logger.error("❌ Failed to connect to Redis at %s: %s", REDIS_URL, str(e))
+        logger.error("❌ Failed to connect to Redis at %s: %s", redis_url, str(e))
     except Exception as e:
         logger.error("❌ Unexpected error while connecting to Redis: %s", str(e))
 
-app.add_middleware(RateLimitMiddleware, redis_url=REDIS_URL)
+app.add_middleware(RateLimitMiddleware, redis_url=redis_url)
 
 # Initialize Redis cache
-redis_cache = RedisCache(REDIS_URL)
+redis_cache = RedisCache(redis_url)
 
 class SuggestionRequest(BaseModel):
     current_text: str
@@ -100,4 +105,4 @@ def read_root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8001, reload=True) 
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, workers=4) 
