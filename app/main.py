@@ -1,7 +1,8 @@
 import os
 import google.generativeai as genai
 from fastapi import FastAPI, HTTPException, Body, Depends
-from fastapi.middleware.cors import CORSMiddleware  # Add CORS middleware import
+from fastapi.middleware.cors import CORSMiddleware  
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from app.rate_limiter import RateLimitMiddleware
@@ -23,14 +24,46 @@ if not api_key:
     raise RuntimeError("GEMINI_API_KEY environment variable is not set")
 
 # Configure allowed hosts
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "8000"))
-    
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS")
+
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
-COMPLETION_PROMPT = """You are a formal government text completion service. Provide ONLY the next few words to complete the text. Use formal, professional language and bureaucratic terminology. NO explanations or original text.
+COMPLETION_PROMPT = """You are a smart compose assistant for a government organization. Your task is to provide concise, professional, and contextually relevant sentence completion suggestions for user inputs in forms, emails, or documents. Follow these guidelines:
+
+
+
+
+
+Suggestions must be formal, clear, and adhere to government communication standards.
+
+
+
+Use precise, inclusive, and neutral language, avoiding jargon unless contextually appropriate.
+
+
+
+Prioritize clarity and brevity, keeping suggestions under 15 words.
+
+
+
+Ensure suggestions align with the user's input context, tone, and intent.
+
+
+
+Avoid sensitive or classified information; focus on general government-related topics (e.g., policy, services, compliance).
+
+
+
+Provide 1 suggestions per input, ordered by relevance.
+
+
+
+
+
+If the input is ambiguous, suggest safe, generic completions suitable for government use.
+
+Example: Input: "We are committed to improving public services by..." Suggestions: enhancing accessibility and efficiency for all citizens. 
 
 User's text: "{text}"
 
@@ -65,13 +98,13 @@ async def startup_event():
             redis.ping()
             redis_available = True
             redis_cache = RedisCache(redis_url)
-            logger.info("✅ Successfully connected to Redis at %s", redis_url)
+            logger.info("Successfully connected to Redis at %s", redis_url)
         except (ConnectionError, TimeoutError) as e:
-            logger.warning("⚠️ Redis not available at %s: %s", redis_url, str(e))
+            logger.warning(" Redis not available at %s: %s", redis_url, str(e))
         except Exception as e:
-            logger.error("❌ Unexpected error while connecting to Redis: %s", str(e))
+            logger.error(" Unexpected error while connecting to Redis: %s", str(e))
     else:
-        logger.info("ℹ️ No Redis URL provided, running without Redis features")
+        logger.info(" No Redis URL provided, running without Redis features")
 
 # Only add rate limiting middleware if Redis URL is provided
 if redis_url:
@@ -96,7 +129,7 @@ async def get_suggestion_from_ai_model(text: str) -> str:
             detail=str(e)
         )
 
-@app.post("/generate-suggestion", response_model=SuggestionResponse)
+@app.post("/api/generate-suggestion", response_model=SuggestionResponse)
 async def generate_suggestion(request: SuggestionRequest):
     if not request.current_text:
         return {"suggestion": "", "cached": False}
@@ -134,9 +167,13 @@ async def generate_suggestion(request: SuggestionRequest):
         print(f"An error occurred in the endpoint: {e}")
         raise HTTPException(status_code=500, detail="An error occurred while generating the suggestion.")
 
-@app.get("/")
-def read_root():
+# API health check endpoint
+@app.get("/api/health")
+def health_check():
     return {"message": "Suggestive Text API is running."}
+
+# Mount static files AFTER defining API routes
+app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Compose</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Smart Compose</h1>
+            <p class="subtitle">Igov Smart Compose</p>
+        </header>
+        <div class="compose-container">
+            <div class="editor-wrapper">
+                <textarea id="editor" placeholder="Start typing your text here..."></textarea>
+                <div id="suggestion" class="suggestion"></div>
+            </div>
+            <div class="instructions">
+                <div class="instruction-item">
+                    <span class="instruction-icon">⌨️</span>
+                    <p>Type naturally</p>
+                </div>
+                <div class="instruction-item">
+                    <span class="instruction-icon">⇥</span>
+                    <p>Press Tab to accept the suggestion</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html> 

@@ -1,0 +1,186 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    line-height: 1.6;
+    background-color: #f8fafc;
+    color: #1e293b;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem;
+    width: 100%;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+}
+
+h1 {
+    font-weight: 600;
+    font-size: 2.5rem;
+    color: #0f172a;
+    margin-bottom: 0.5rem;
+}
+
+.subtitle {
+    color: #64748b;
+    font-size: 1.1rem;
+}
+
+.compose-container {
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+    padding: 2rem;
+}
+
+.editor-wrapper {
+    position: relative;
+    margin-bottom: 1.5rem;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 0.5rem;
+    transition: background-color 0.2s;
+    line-height: 1.6;
+    overflow: hidden;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;  /* Align items at the start */
+}
+
+.editor-wrapper:focus-within {
+    background: #f1f5f9;
+}
+
+#editor {
+    width: auto;
+    min-height: 250px;
+    padding: 1rem;
+    font-size: 1rem;
+    border: none;
+    border-radius: 6px;
+    resize: vertical;
+    outline: none;
+    font-family: inherit;
+    background: transparent;
+    position: relative;
+    z-index: 1;
+    color: #1e293b;
+    line-height: inherit;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    display: inline-block;
+    letter-spacing: normal;
+    caret-color: #1e293b;
+    flex-grow: 1;
+    margin-right: 0;  /* Remove right margin */
+}
+
+#editor::placeholder {
+    color: #94a3b8;
+    opacity: 1;
+}
+
+.suggestion {
+    position: relative;
+    display: inline-block;
+    padding: 0;  /* Remove padding */
+    margin: 0;  /* Remove margin */
+    font-size: 1rem;
+    pointer-events: none;
+    background: transparent;
+    font-family: inherit;
+    line-height: inherit;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    letter-spacing: normal;
+    color: transparent;
+    padding-top: 1rem;  /* Match editor's top padding */
+}
+
+.suggestion-text {
+    color: #94a3b8;
+    opacity: 0.6;
+    display: inline;
+    pointer-events: none;
+    background: none;
+    position: relative;
+    padding: 0;
+    margin: 0;
+    white-space: pre;
+    font-style: italic;
+}
+
+.suggestion-text.loading {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    margin-left: 1px;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.7; }
+}
+
+.instructions {
+    background-color: #f8fafc;
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.instruction-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.instruction-item:last-child {
+    margin-bottom: 0;
+}
+
+.instruction-icon {
+    font-size: 1.25rem;
+    min-width: 24px;
+    text-align: center;
+}
+
+.instruction-item p {
+    color: #64748b;
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+@media (max-width: 640px) {
+    .container {
+        padding: 1rem;
+    }
+    
+    h1 {
+        font-size: 2rem;
+    }
+    
+    .compose-container {
+        padding: 1.5rem;
+    }
+    
+    .editor-wrapper {
+        margin-bottom: 1rem;
+    }
+    
+    #editor {
+        min-height: 200px;
+    }
+} 
