@@ -1,70 +1,34 @@
 document.addEventListener('DOMContentLoaded', () => {
     const editor = document.getElementById('editor');
-    const suggestion = document.getElementById('suggestion');
+    const suggestionDisplay = document.getElementById('suggestion');
+    let currentSuggestion = '';
     let typingTimer;
     const doneTypingInterval = 500;
-    let currentSuggestion = '';
-    let isLoading = false;
-    let lastProcessedText = '';
-
-    // Function to safely escape HTML
-    function escapeHtml(text) {
-        return text
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+    
+    // Generate a random user ID if not exists
+    let userId = localStorage.getItem('user_id');
+    if (!userId) {
+        userId = 'user_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('user_id', userId);
     }
 
-    // Function to update suggestion display position
-    function updateSuggestionPosition() {
-        const cursorPosition = editor.selectionStart;
+    function showLoading() {
+        suggestionDisplay.innerHTML = 
+            '<div class="loading-dots">' +
+            '<span></span>' +
+            '<span></span>' +
+            '<span></span>' +
+            '</div>';
+    }
+
+    async function getSuggestion() {
         const text = editor.value;
-        
-        if (cursorPosition === text.length) {  // Only show suggestion at the end
-            const textBeforeCursor = text.substring(0, cursorPosition);
-            
-            let suggestionContent = '';
-            if (isLoading) { 
-                suggestionContent = '<span class="suggestion-text loading">...</span>';
-            } else if (currentSuggestion) {
-                // Check if the suggestion would create a duplicate
-                const words = textBeforeCursor.trim().split(/\s+/);
-                const lastWord = words[words.length - 1] || '';
-                const lastPhrase = words.slice(-3).join(' '); // Get last 3 words
-                
-                let suggestionToShow = currentSuggestion;
-                
-                // Check for both single word and phrase duplicates
-                if (lastWord && (
-                    suggestionToShow.toLowerCase().startsWith(lastWord.toLowerCase()) ||
-                    suggestionToShow.toLowerCase().startsWith(lastPhrase.toLowerCase())
-                )) {
-                    const matchLength = Math.max(
-                        lastWord.length,
-                        suggestionToShow.toLowerCase().startsWith(lastPhrase.toLowerCase()) ? lastPhrase.length : 0
-                    );
-                    suggestionToShow = suggestionToShow.substring(matchLength).trimStart();
-                }
-                
-                if (suggestionToShow.trim()) {
-                    suggestionContent = `<span class="suggestion-text">${escapeHtml(suggestionToShow)}</span>`;
-                }
-            }
-            
-            suggestion.innerHTML = suggestionContent;
-        } else {
-            suggestion.innerHTML = '';
+        if (!text.trim()) {
+            suggestionDisplay.textContent = '';
+            return;
         }
-    }
 
-    // Function to get suggestions from the API
-    async function getSuggestion(text) {
-        if (!text.trim() || text === lastProcessedText) return;
-        
-        isLoading = true;
-        updateSuggestionPosition();
+        showLoading();
 
         try {
             const response = await fetch('/api/generate-suggestion', {
@@ -73,111 +37,77 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    current_text: text
+                    current_text: text,
+                    user_id: userId
                 })
             });
 
             if (!response.ok) {
-                throw new Error(`Network response was not ok: ${response.status}`);
+                throw new Error(`API response error: ${response.status}`);
             }
 
             const data = await response.json();
-            currentSuggestion = data.suggestion;
-            lastProcessedText = text;
+            currentSuggestion = data.suggestion || '';
+            if (currentSuggestion) {
+                suggestionDisplay.textContent = currentSuggestion;
+            } else {
+                suggestionDisplay.textContent = '';
+            }
         } catch (error) {
-            console.error('Error fetching suggestion:', error);
-            currentSuggestion = '';
-        } finally {
-            isLoading = false;
-            updateSuggestionPosition();
+            console.error('Error:', error);
+            suggestionDisplay.textContent = '';
         }
     }
 
-    // Handle typing events with debounce
+    async function sendFeedback(context, selectedSuggestion) {
+        try {
+            const response = await fetch('/api/feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_id: userId,
+                    context: context,
+                    selected_suggestion: selectedSuggestion
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to send feedback');
+            }
+        } catch (error) {
+            console.error('Error sending feedback:', error);
+        }
+    }
+
     editor.addEventListener('input', () => {
         clearTimeout(typingTimer);
-        
-        // Only clear current suggestion if the text has changed
-        if (editor.value !== lastProcessedText) {
-            currentSuggestion = '';
-            updateSuggestionPosition();
-            
-            if (editor.value) {
-                typingTimer = setTimeout(() => {
-                    getSuggestion(editor.value);
-                }, doneTypingInterval);
-            }
-        }
+        // Don't clear the suggestion display here, let it keep showing loading
+        currentSuggestion = '';
+        showLoading(); // Show loading immediately when typing
+        typingTimer = setTimeout(getSuggestion, doneTypingInterval);
     });
 
-    // Handle cursor movement
-    editor.addEventListener('keyup', (e) => {
-        // Update on arrow keys, home, end, etc.
-        if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') {
-            updateSuggestionPosition();
-        }
-    });
-
-    // Handle mouse clicks for cursor position
-    editor.addEventListener('click', () => {
-        updateSuggestionPosition();
-    });
-
-    // Add resize observer to handle editor size changes
-    const resizeObserver = new ResizeObserver(() => {
-        if (currentSuggestion) {
-            updateSuggestionPosition();
-        }
-    });
-    resizeObserver.observe(editor);
-
-    // Handle window resize
-    window.addEventListener('resize', () => {
-        if (currentSuggestion) {
-            updateSuggestionPosition();
-        }
-    });
-
-    // Handle editor scroll
-    editor.addEventListener('scroll', () => {
-        if (currentSuggestion) {
-            updateSuggestionPosition();
-        }
-    });
-
-    // Handle tab key to accept suggestion
     editor.addEventListener('keydown', (e) => {
         if (e.key === 'Tab' && currentSuggestion) {
             e.preventDefault();
-            const cursorPosition = editor.selectionStart;
             const text = editor.value;
-            const textBeforeCursor = text.substring(0, cursorPosition);
-            const words = textBeforeCursor.trim().split(/\s+/);
-            const lastWord = words[words.length - 1] || '';
-            const lastPhrase = words.slice(-3).join(' ');
             
-            let suggestionToAdd = currentSuggestion;
-            if (lastWord && (
-                suggestionToAdd.toLowerCase().startsWith(lastWord.toLowerCase()) ||
-                suggestionToAdd.toLowerCase().startsWith(lastPhrase.toLowerCase())
-            )) {
-                const matchLength = Math.max(
-                    lastWord.length,
-                    suggestionToAdd.toLowerCase().startsWith(lastPhrase.toLowerCase()) ? lastPhrase.length : 0
-                );
-                suggestionToAdd = suggestionToAdd.substring(matchLength).trimStart();
-            }
+            // Store the context and suggestion for feedback
+            const context = text;
+            const selectedSuggestion = currentSuggestion;
             
-            editor.value = text.substring(0, cursorPosition) + 
-                          suggestionToAdd + 
-                          text.substring(cursorPosition);
-            editor.selectionStart = editor.selectionEnd = cursorPosition + suggestionToAdd.length;
+            // Apply the suggestion
+            editor.value = text + currentSuggestion;
+            editor.selectionEnd = editor.value.length;
+            
+            // Clear the current suggestion
             currentSuggestion = '';
-            lastProcessedText = editor.value;
-            updateSuggestionPosition();
+            suggestionDisplay.textContent = '';
+            
+            // Send feedback
+            sendFeedback(context, selectedSuggestion);
         }
     });
-
-    // Initial update
-    updateSuggestionPosition();
 }); 

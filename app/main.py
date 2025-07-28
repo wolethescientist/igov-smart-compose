@@ -1,6 +1,6 @@
 import os
 import google.generativeai as genai
-from fastapi import FastAPI, HTTPException, Body, Depends
+from fastapi import FastAPI, HTTPException, Body, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware  
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -31,35 +31,20 @@ model = genai.GenerativeModel('gemini-2.5-flash')
 
 COMPLETION_PROMPT = """You are a smart compose assistant for a government organization. Your task is to provide concise, professional, and contextually relevant sentence completion suggestions for user inputs in forms, emails, or documents. Follow these guidelines:
 
-
-
-
-
 Suggestions must be formal, clear, and adhere to government communication standards.
-
-
 
 Use precise, inclusive, and neutral language, avoiding jargon unless contextually appropriate.
 
-
-
 Prioritize clarity and brevity, keeping suggestions under 15 words.
-
-
 
 Ensure suggestions align with the user's input context, tone, and intent.
 
-
-
 Avoid sensitive or classified information; focus on general government-related topics (e.g., policy, services, compliance).
 
+Consider the user's previous selections for similar contexts:
+{user_history}
 
-
-Provide 1 suggestions per input, ordered by relevance.
-
-
-
-
+Provide 1 suggestion per input, ordered by relevance.
 
 If the input is ambiguous, suggest safe, generic completions suitable for government use.
 
@@ -68,6 +53,19 @@ Example: Input: "We are committed to improving public services by..." Suggestion
 User's text: "{text}"
 
 Completion:"""
+
+class SuggestionRequest(BaseModel):
+    current_text: str
+    user_id: Optional[str] = None
+
+class SuggestionResponse(BaseModel):
+    suggestion: str
+    cached: bool
+
+class FeedbackRequest(BaseModel):
+    user_id: str
+    context: str
+    selected_suggestion: str
 
 app = FastAPI(
     title="Igov Smart Compose",
@@ -106,20 +104,33 @@ async def startup_event():
     else:
         logger.info(" No Redis URL provided, running without Redis features")
 
-# Only add rate limiting middleware if Redis URL is provided
-if redis_url:
-    app.add_middleware(RateLimitMiddleware, redis_url=redis_url)
-
-class SuggestionRequest(BaseModel):
-    current_text: str
-
-class SuggestionResponse(BaseModel):
-    suggestion: str
-    cached: bool = False
-
-async def get_suggestion_from_ai_model(text: str) -> str:
+async def format_user_history(user_id: str) -> str:
+    """Format user history for prompt context"""
+    if not (redis_cache and redis_available) or not user_id:
+        return "No previous history available."
+    
     try:
-        response = await model.generate_content_async(COMPLETION_PROMPT.format(text=text))
+        feedback = await redis_cache.get_user_feedback(user_id, limit=5)
+        if not feedback:
+            return "No previous history available."
+        
+        history_text = "Recent selections:\n"
+        for item in feedback:
+            history_text += f"- Context: '{item['context']}' → Selected: '{item['selected']}'\n"
+        return history_text
+    except Exception as e:
+        logger.error(f"Error formatting user history: {e}")
+        return "No previous history available."
+
+async def get_suggestion_from_ai_model(text: str, user_id: Optional[str] = None) -> str:
+    try:
+        user_history = await format_user_history(user_id)
+        response = await model.generate_content_async(
+            COMPLETION_PROMPT.format(
+                text=text,
+                user_history=user_history
+            )
+        )
         return response.text.strip()
 
     except Exception as e:
@@ -149,7 +160,10 @@ async def generate_suggestion(request: SuggestionRequest):
                 # Continue without cache if there's an error
 
         # Get from AI model
-        ai_suggestion = await get_suggestion_from_ai_model(request.current_text)
+        ai_suggestion = await get_suggestion_from_ai_model(
+            request.current_text,
+            request.user_id
+        )
         
         # Try to store in cache if Redis is available
         if redis_cache and redis_available:
@@ -166,6 +180,39 @@ async def generate_suggestion(request: SuggestionRequest):
     except Exception as e:
         print(f"An error occurred in the endpoint: {e}")
         raise HTTPException(status_code=500, detail="An error occurred while generating the suggestion.")
+
+@app.post("/api/feedback")
+async def store_feedback(feedback: FeedbackRequest):
+    """Store user feedback about selected suggestions"""
+    if not (redis_cache and redis_available):
+        raise HTTPException(
+            status_code=503,
+            detail="Feedback storage is currently unavailable"
+        )
+    
+    try:
+        success = await redis_cache.store_user_feedback(
+            feedback.user_id,
+            feedback.context,
+            feedback.selected_suggestion
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to store feedback"
+            )
+        
+        return {"status": "success"}
+    
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error storing feedback: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while storing feedback"
+        )
 
 # API health check endpoint
 @app.get("/api/health")
